@@ -2,12 +2,15 @@
 # 거리별 RSSI 기록 도구. 도로변 ESP32의 기존 [RX] 로그만 읽는다(펌웨어 변경 없음).
 #
 #   기록: ~/.platformio/penv/bin/python scripts/rssi_survey.py record <ESP32 포트> [--seconds 30]
-#   요약: ~/.platformio/penv/bin/python scripts/rssi_survey.py summary <csv 파일>
+#   요약: ~/.platformio/penv/bin/python scripts/rssi_survey.py summary <rssi-....csv>
 #
 # record는 거리 이름(예: 1m)을 입력받고 Enter를 누르면 그때부터 정해진 시간 동안
-# [RX] 줄을 CSV(docs/logs/rssi-<시각>.csv)에 쌓는다. 원문 로그도 같은 이름 .log로 남긴다.
+# [RX] 줄을 모은다. 파일(docs/logs/):
+#   rssi-<시각>.csv           표본 1줄 = [RX] 1줄
+#   rssi-<시각>-sessions.csv  회차 1줄 (수신 0개 회차·이상 이벤트 포함)
+#   rssi-<시각>.log           시리얼 원문(맥북 시각). 깨진 줄은 [GARBLED] + hex
 # 주의:
-#  - 포트를 열면 ESP32가 리셋될 수 있다(2026-11-27 관찰). 리셋 후 [ROADSIDE]가 나오면 기록을 시작한다.
+#  - 포트를 열면 ESP32가 리셋될 수 있다(2026-11-27 관찰). 첫 프롬프트 뒤 몇 초 기다린다.
 #  - 도로변 펌웨어는 스캔 1회(약 1.1초)마다 키링 1개당 [RX] 최대 1줄 → 30초 ≈ 27개 표본.
 #  - RSSI는 거리 값이 아니다. 이 도구는 거리별 분포를 비교할 뿐이다.
 import argparse
@@ -20,47 +23,63 @@ import sys
 import time
 
 RX_RE = re.compile(r"^\[RX\] t=(\d+)ms keyring=(\d+) rssi=(-?\d+)$")
-GAP_MISS_MS = 1600  # 연속 [RX] 간격이 이보다 길면 그 사이 스캔에서 못 받은 것으로 센다(루프 약 1.1초)
-FIELDS = ["host_time", "label", "board_t_ms", "keyring", "rssi"]
+SCAN_PERIOD_S = 1.1   # 도로변 loop 1회(스캔 1초 + 처리). 2026-11-27 실측 1.04~1.10초
+TIMEOUT_S = 3.0       # 도로변 kSignalTimeoutMs. 이보다 긴 공백이면 현재 로직은 경고를 끈다
+OUTLIER_DB = 20       # 회차 중앙값에서 이만큼 이상 벗어난 표본을 이상치로 센다(기술용 기준)
+FIELDS = ["session", "label", "host_time", "host_epoch", "board_t_ms", "keyring", "rssi"]
+SESSION_FIELDS = ["session", "label", "start_epoch", "seconds", "n",
+                  "alive", "scan_error", "reset", "garbled"]
+EVENTS = ("scan_error", "reset", "garbled")
 
 
-def summarize(rows):
-    """rows: 같은 label의 dict 목록. 통계 dict 반환(표본 없으면 n=0만)."""
-    rssi = [int(r["rssi"]) for r in rows]
-    if not rssi:
-        return {"n": 0}
-    ts = [int(r["board_t_ms"]) for r in rows]
-    gaps = [b - a for a, b in zip(ts, ts[1:])]
-    misses = sum(max(0, round(g / 1100) - 1) for g in gaps if g > GAP_MISS_MS)
-    q = sorted(rssi)
-    return {
-        "n": len(rssi),
-        "min": q[0],
-        "max": q[-1],
-        "mean": statistics.fmean(rssi),
-        "median": statistics.median(rssi),
-        "stdev": statistics.stdev(rssi) if len(rssi) > 1 else 0.0,
-        "p10": q[max(0, math.ceil(0.1 * len(q)) - 1)],
-        "p90": q[max(0, math.ceil(0.9 * len(q)) - 1)],
-        "missed_scans": misses,
+def quantile(sorted_values, q):
+    return sorted_values[max(0, math.ceil(q * len(sorted_values)) - 1)]
+
+
+def summarize(session, rows):
+    """회차 1개의 통계. session: sessions.csv 1줄(dict), rows: 그 회차 표본."""
+    start, seconds = float(session["start_epoch"]), float(session["seconds"])
+    times = [start] + [float(r["host_epoch"]) for r in rows] + [start + seconds]
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    s = {
+        "n": len(rows),
+        "rate": len(rows) / max(1, round(seconds / SCAN_PERIOD_S)),
+        "max_gap": max(gaps),
+        "long_gaps": sum(1 for g in gaps if g >= TIMEOUT_S),
+        "flags": ",".join(k for k in EVENTS if int(session.get(k) or 0)),
     }
+    if not rows:
+        s["verdict"] = "없음"
+        return s
+    s["verdict"] = "안정" if s["long_gaps"] == 0 else "간헐"
+    rssi = sorted(int(r["rssi"]) for r in rows)
+    med = statistics.median(rssi)
+    s.update({
+        "min": rssi[0], "max": rssi[-1], "mean": statistics.fmean(rssi), "median": med,
+        "stdev": statistics.stdev(rssi) if len(rssi) > 1 else 0.0,
+        "p10": quantile(rssi, 0.1), "p90": quantile(rssi, 0.9),
+        "outliers": sum(1 for v in rssi if abs(v - med) >= OUTLIER_DB),
+    })
+    return s
 
 
-def print_table(rows):
-    labels = []
-    for r in rows:
-        if r["label"] not in labels:
-            labels.append(r["label"])
-    print(f"{'label':>10} {'n':>4} {'min':>5} {'max':>5} {'mean':>7} {'median':>7} "
-          f"{'stdev':>6} {'p10':>5} {'p90':>5} {'miss':>5}")
-    for label in labels:
-        s = summarize([r for r in rows if r["label"] == label])
-        if s["n"] == 0:
-            print(f"{label:>10} {0:>4}  (표본 없음)")
-            continue
-        print(f"{label:>10} {s['n']:>4} {s['min']:>5} {s['max']:>5} {s['mean']:>7.1f} "
-              f"{s['median']:>7.1f} {s['stdev']:>6.2f} {s['p10']:>5} {s['p90']:>5} "
-              f"{s['missed_scans']:>5}")
+def print_table(sessions, rows):
+    print(f"{'label':>8} {'start':>8} {'n':>3} {'rate':>5} {'maxgap':>6} {'gap>=3s':>7} "
+          f"{'verdict':>4} {'min':>4} {'p10':>4} {'med':>6} {'p90':>4} {'max':>4} "
+          f"{'mean':>6} {'stdev':>5} {'outl':>4}  flags")
+    for se in sessions:
+        s = summarize(se, [r for r in rows if r["session"] == se["session"]])
+        head = (f"{se['label']:>8} {se['session']:>8} {s['n']:>3} {s['rate']:>5.0%} "
+                f"{s['max_gap']:>5.1f}s {s['long_gaps']:>7} {s['verdict']:>4}")
+        if s["n"]:
+            head += (f" {s['min']:>4} {s['p10']:>4} {s['median']:>6.1f} {s['p90']:>4} "
+                     f"{s['max']:>4} {s['mean']:>6.1f} {s['stdev']:>5.2f} {s['outliers']:>4}")
+        else:
+            head += " " * 46
+        print(head + (f"  !! {s['flags']}" if s["flags"] else ""))
+    print(f"rate = n / (회차 초 / {SCAN_PERIOD_S}) 근사. verdict: 안정 = 공백이 한 번도 "
+          f"{TIMEOUT_S:.0f}s 이상 아님, 간헐 = 수신했지만 {TIMEOUT_S:.0f}s 이상 공백 있음. "
+          f"outl = 중앙값에서 {OUTLIER_DB}dB 이상. !! = 이상 이벤트(무효 검토)")
 
 
 def read_csv(path):
@@ -68,99 +87,121 @@ def read_csv(path):
         return list(csv.DictReader(f))
 
 
+def sessions_path(csv_path):
+    return os.path.splitext(csv_path)[0] + "-sessions.csv"
+
+
 def cmd_summary(args):
-    print_table(read_csv(args.csv))
+    print_table(read_csv(sessions_path(args.csv)), read_csv(args.csv))
 
 
 def cmd_record(args):
+    import threading
+
     import serial  # PlatformIO penv에 포함된 pyserial
 
-    stamp = time.strftime("%Y%m%d-%H%M%S")
     os.makedirs("docs/logs", exist_ok=True)
-    csv_path = args.out or f"docs/logs/rssi-{stamp}.csv"
+    csv_path = args.out or f"docs/logs/rssi-{time.strftime('%Y%m%d-%H%M%S')}.csv"
     log_path = os.path.splitext(csv_path)[0] + ".log"
 
     s = serial.Serial()
     s.port, s.baudrate, s.timeout = args.port, 115200, 0.05
     s.dtr, s.rts = False, False
     s.open()
-    buf = b""
 
-    def now():
-        t = time.time()
+    def hms(t):
         return time.strftime("%H:%M:%S", time.localtime(t)) + f".{int(t * 1000) % 1000:03d}"
 
-    def lines(log):
-        """시리얼에서 완성된 줄을 꺼내 원문 로그에 남기고 돌려준다. 깨진 줄은 hex로 남긴다."""
-        nonlocal buf
-        buf += s.read(256)
-        out = []
-        while b"\n" in buf:
-            raw, buf = buf.split(b"\n", 1)
-            raw = raw.rstrip(b"\r")
-            try:
-                text = raw.decode("ascii")
-            except UnicodeDecodeError:
-                text = "[GARBLED] " + raw.hex(" ")
-            log.write(f"{now()} {text}\n")
-            out.append(text)
-        return out
+    # 시리얼은 별도 스레드가 계속 읽는다. 입력을 기다리는 동안 읽지 않으면 OS 버퍼에 쌓였다가
+    # 한꺼번에 들어와 도착 시각이 틀어진다(2026-11-27 관찰). 모든 줄은 (도착 시각, 문자열)로 보관.
+    received, lock, stop = [], threading.Lock(), threading.Event()
+    log = open(log_path, "a", buffering=1)
 
-    rows = []
-    new_file = not os.path.exists(csv_path)
-    with open(csv_path, "a", newline="") as cf, open(log_path, "a", buffering=1) as log:
+    def reader():
+        buf = b""
+        while not stop.is_set():
+            buf += s.read(256)
+            while b"\n" in buf:
+                raw, buf = buf.split(b"\n", 1)
+                raw = raw.rstrip(b"\r")
+                try:
+                    text = raw.decode("ascii")
+                except UnicodeDecodeError:
+                    text = "[GARBLED] " + raw.hex(" ")
+                t = time.time()
+                log.write(f"{hms(t)} {text}\n")
+                with lock:
+                    received.append((t, text))
+
+    opened = time.time()
+    log.write(f"{hms(opened)} [HOST] open {args.port} (이후 2초간 도착한 줄은 이전에 쌓인 출력일 수 있어 집계 안 함)\n")
+    threading.Thread(target=reader, daemon=True).start()
+    time.sleep(2)
+
+    all_sessions, all_rows = [], []
+    with open(csv_path, "a", newline="") as cf, open(sessions_path(csv_path), "a", newline="") as sf:
         writer = csv.DictWriter(cf, fieldnames=FIELDS)
-        if new_file:
+        swriter = csv.DictWriter(sf, fieldnames=SESSION_FIELDS)
+        if cf.tell() == 0:
             writer.writeheader()
-        log.write(f"{now()} [HOST] open {args.port}\n")
-        print(f"기록 파일: {csv_path}\n원문 로그: {log_path}")
+        if sf.tell() == 0:
+            swriter.writeheader()
+        print(f"표본: {csv_path}\n회차: {sessions_path(csv_path)}\n원문: {log_path}")
         print("거리 이름을 입력하고 Enter(예: 0.5m). 빈 입력은 같은 이름 재측정, q는 종료.")
         label = ""
         while True:
-            lines(log)  # 대기 중 줄도 원문 로그에 남긴다
             entered = input(f"\n거리 [{label or '-'}]> ").strip()
-            lines(log)
             if entered == "q":
                 break
             label = entered or label
             if not label:
                 print("거리 이름을 입력하세요.")
                 continue
-            log.write(f"{now()} [HOST] session start label={label} seconds={args.seconds}\n")
-            session, events = [], {"alive": 0, "scan_error": 0, "reset": 0, "garbled": 0}
-            end = time.time() + args.seconds
-            while time.time() < end:
-                for text in lines(log):
+            start = time.time()
+            end = start + args.seconds
+            session = {"session": hms(start)[:8], "label": label, "start_epoch": f"{start:.3f}",
+                       "seconds": args.seconds, "alive": 0, "scan_error": 0, "reset": 0, "garbled": 0}
+            log.write(f"{hms(start)} [HOST] session start label={label} seconds={args.seconds}\n")
+            rows, seen = [], 0
+            while True:
+                with lock:
+                    window = [(t, x) for t, x in received if start <= t < end]
+                for t, text in window[seen:]:
                     m = RX_RE.match(text)
                     if m:
-                        row = {"host_time": now(), "label": label, "board_t_ms": m.group(1),
+                        row = {"session": session["session"], "label": label, "host_time": hms(t),
+                               "host_epoch": f"{t:.3f}", "board_t_ms": m.group(1),
                                "keyring": m.group(2), "rssi": m.group(3)}
                         writer.writerow(row)
-                        session.append(row)
+                        rows.append(row)
                         print(f"  {row['host_time']} keyring={row['keyring']} rssi={row['rssi']}")
                     elif text.startswith("[ALIVE]"):
-                        events["alive"] += 1
+                        session["alive"] += 1
                     elif text.startswith("[SCAN ERROR]"):
-                        events["scan_error"] += 1
+                        session["scan_error"] += 1
                     elif text.startswith("[ROADSIDE]"):
-                        events["reset"] += 1
+                        session["reset"] += 1
                     elif text.startswith("[GARBLED]"):
-                        events["garbled"] += 1
+                        session["garbled"] += 1
+                seen = len(window)
+                if time.time() >= end + 0.2:  # 끝 직전에 도착한 줄까지 반영
+                    break
+                time.sleep(0.05)
+            session["n"] = len(rows)
+            swriter.writerow(session)
             cf.flush()
-            log.write(f"{now()} [HOST] session end label={label} events={events}\n")
-            rows.extend(session)
-            st = summarize(session)
-            if st["n"]:
-                print(f"  -> n={st['n']} mean={st['mean']:.1f} median={st['median']} "
-                      f"min/max={st['min']}/{st['max']} stdev={st['stdev']:.2f} miss={st['missed_scans']}")
-            else:
-                print("  -> [RX] 없음")
-            if any(events[k] for k in ("scan_error", "reset", "garbled")):
-                print(f"  !! 이상 이벤트 {events} — 이 회차는 무효로 볼지 판단 필요")
+            sf.flush()
+            log.write(f"{hms(time.time())} [HOST] session end label={label} n={len(rows)}\n")
+            all_sessions.append(session)
+            all_rows.extend(rows)
+            print_table([session], rows)
+    stop.set()
+    time.sleep(0.1)
     s.close()
+    log.close()
     print("\n이번 실행 요약")
-    print_table(rows)
-    print(f"\n전체 파일 요약: python scripts/rssi_survey.py summary {csv_path}")
+    print_table(all_sessions, all_rows)
+    print(f"\n다시 보기: python scripts/rssi_survey.py summary {csv_path}")
 
 
 def main():
