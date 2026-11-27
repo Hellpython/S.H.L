@@ -1,87 +1,123 @@
 # Phase 5 — 도로변 수신 구조 C 설계 (연속 스캔 + 광고별 콜백)
 
-상태: **설계만. 구현·업로드 전** (사용자 결정: 실물 ON/OFF 5회 기준선을 먼저 확보한 뒤 구현, 2026-11-27)
+상태: **설계 검토 중. 구현·업로드 전** — 실물 ON/OFF 5회 기준선을 먼저 확보한다(사용자 결정, 2026-11-27).
+
+개발 순서 (사용자 지정): ① 기존 방식 기준선 → ② C 설계 확정 → ③ C 구현 + 단위·회귀 테스트 → ④ 실물 업로드 → ⑤ 같은 ON/OFF 5회 → ⑥ 전후 비교·개선 여부 판단
+
+개정 이력: v1(링 버퍼 직접 구현, "10초 무광고 → 재시작") → **v2**(FreeRTOS 큐, 확정적 근거가 있을 때만 재시작, 단계별 시각 측정). 바꾼 이유는 각 절에 적는다.
 
 ## 1. 결정과 범위
 
 | 항목 | 결정 |
 |---|---|
-| 수신 방식 | C: `start(0)` 연속 스캔 + 광고마다 콜백 → 고정 크기 큐 → `loop()`에서 판단·출력 |
+| 수신 방식 | C: `start(0)` 연속 스캔 + 광고마다 콜백 → FreeRTOS 큐 → `loop()`에서 판단·출력 |
 | 유지 | BLE 광고 6바이트 형식, XIAO 송신 펌웨어, `WarningController`(WAITING/WARNING 규칙), `keyring_packet` |
-| 되돌리기 | 기준선 커밋에 태그 `roadside-scan1s-baseline`. 회귀 시 `git checkout roadside-scan1s-baseline -- src/roadside/main.cpp` 후 재빌드·업로드 |
+| 되돌리기 | 로컬 태그 `roadside-scan1s-baseline`(커밋 1cb6b43, roadside 소스는 기준선과 같음). 회귀 시 `git checkout roadside-scan1s-baseline -- src/roadside/main.cpp` → 재빌드·업로드 |
 | 범위 밖 | RSSI 거리 판정·임계값, 대시보드, LED판, 고장 시 LED 정책(안전 요구사항 미정) |
 
-## 2. 근거 — 설치된 Arduino-ESP32 2.0.17 `libraries/BLE/src`
+## 2. 근거 — 설치된 Arduino-ESP32 2.0.17 소스
 
 | 사실 | 위치 |
 |---|---|
 | 스캔 시간 단위는 초. `start(0)` = 멈출 때까지 계속 | `BLEScan::start` → `esp_ble_gap_start_scanning(duration)` |
-| 콜백 등록 + `wantDuplicates=true`이면 광고마다 `onResult()` 호출, 결과를 저장하지 않고 `delete` | `BLEScan.cpp` `ESP_GAP_SEARCH_INQ_RES_EVT` |
-| `wantDuplicates=false`이면 콜백이 있어도 결과를 map에 저장 → 연속 스캔에서 계속 쌓임(메모리) | 같은 곳 |
+| 콜백 + `wantDuplicates=true` → 광고마다 `onResult()`, 결과는 저장하지 않고 `delete` | `BLEScan.cpp` `ESP_GAP_SEARCH_INQ_RES_EVT` |
+| `wantDuplicates=false` → 콜백이 있어도 map에 저장 → 연속 스캔에서 계속 쌓임 | 같은 곳 |
 | 컨트롤러 중복 필터 꺼짐 | `scan_duplicate = BLE_SCAN_DUPLICATE_DISABLE` |
-| `stop()`은 완료 콜백을 부르지 않고 세마포어만 반환 → `stop()` 후 `start()` 가능 | `BLEScan::stop` |
-| 완료 콜백은 `ESP_GAP_SEARCH_INQ_CMPL_EVT`(시간 만료·컨트롤러가 종료)에서만 | 같은 파일 |
-| 광고마다 `new BLEAdvertisedDevice` + 파싱 + `delete` (BT 태스크) | 같은 곳 — 주변 광고가 많으면 BT 태스크 부하·힙 할당 반복 |
-| 스캔 시작 후 비동기 실패(scan start complete status)는 `BLEScan`이 처리 안 함 | 기존 README 한계 2 |
+| `stop()`은 완료 콜백 없이 세마포어만 반환 → `stop()` 뒤 `start()` 가능 | `BLEScan::stop` |
+| 완료 콜백은 `ESP_GAP_SEARCH_INQ_CMPL_EVT`에서만(연속 스캔에선 정상적으로 오지 않음) | `BLEScan.cpp` |
+| `setCustomGapHandler` 핸들러는 BLEScan 처리 **뒤에** 모든 GAP 이벤트를 받는다 | `BLEDevice.cpp:269-278` |
+| `ESP_GAP_BLE_SCAN_START_COMPLETE_EVT`(status), `ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT` 이벤트 존재 | `esp_gap_ble_api.h:138,151` |
+| 스캔 결과에 컨트롤러 수신 시각 없음. `num_dis`(버려진 광고 보고 수) 있음 | `esp_gap_ble_api.h:981-994` |
+| 광고마다 `new BLEAdvertisedDevice` + 파싱 + `delete` (BT 태스크) | `BLEScan.cpp` — 주변 광고가 많으면 BT 태스크 부하·힙 할당 반복 |
 
-**광고 100ms ≠ 초당 10개 수신.** 스캔 창/주기(99/100ms), 3개 광고 채널 순환, 충돌, BT 태스크 처리 속도 때문에 실제 수신 수는 실측으로만 판단한다.
+**광고 100ms ≠ 초당 10개 수신.** 스캔 창/주기, 3개 광고 채널 순환, 충돌, BT 태스크 처리 속도 때문에 실제 수는 실측으로만 판단한다.
 
-## 3. 구조
+## 3. 큐 — FreeRTOS 큐로 결정 (v1의 직접 구현 링 버퍼 철회)
 
-```
-[BT 태스크]  onResult(device)
-   ├─ 모든 광고: allAdvCount++ (atomic)            ← 수신기 동작 진단용
-   └─ Manufacturer Data가 키링 형식(parsePayload)일 때만
-        이벤트 {millis(), payload[6], rssi} 를 큐에 push (실패 시 dropCount++)
-        ※ Serial·GPIO·WarningController 호출 금지
+| 기준 | 직접 구현 SPSC 링 버퍼 | FreeRTOS 큐 (`xQueueCreate` / `xQueueSend(..., 0)`) |
+|---|---|---|
+| 정확성·경쟁 상태 | 메모리 순서(acquire/release)를 직접 맞춰야 함. 듀얼코어 ESP32에서 잘못되면 드물게 재현되는 버그 | ESP-IDF FreeRTOS가 듀얼코어 spinlock으로 보장, 널리 쓰임 |
+| 메모리 안전 | 인덱스·용량 실수 가능 | 생성 시 고정 크기 할당, 항목은 값 복사 |
+| 블로킹 | 없음 | 대기 시간 0으로 보내면 가득 찼을 때 즉시 실패(블로킹 없음) |
+| 실행 비용 | 원자 연산 몇 개 | 임계 구역 진입·복사 — 마이크로초 수준(정확한 값 미측정). 예상 이벤트 수(초당 수~수십)에서는 무시 가능하다고 판단, 3단계 시각 측정으로 확인 |
+| 진단 | 직접 구현 | `uxQueueMessagesWaiting`으로 사용량, 보내기 실패로 드롭 수 |
+| 유지보수 | 프로젝트 전용 동시성 코드 | 표준 API |
+| 맥북 단위 테스트 | 가능 | 불가(FreeRTOS 필요) |
 
-[loop 태스크] 약 10ms마다
-   1) 큐를 모두 꺼내 controller.onAdvertisement(payload, 6, 이벤트 시각) → [LED]/[RX]/[STATE] 출력
-   2) controller.update(millis())  → 신호 소실 판정 (기존 규칙 그대로)
-   3) 스캔 상태 점검·복구 (4절)
-   4) 약 10초마다 [ALIVE] (+ 진단 값)
-```
+결정: **FreeRTOS 큐**. 맥북에서 테스트하기 쉽다는 것만으로 동시성 자료구조를 직접 만들지 않는다(사용자 지시).
+- 콜백: `xQueueSend(queue, &event, 0)` — 기다리지 않음. 실패하면 드롭 수 증가(원자 변수).
+- 넘칠 때 새 이벤트를 버려도 되는 이유: 판단에는 "최근에 받았다"만 필요하고, 큐 안의 이벤트가 이미 그 사실을 담고 있다.
+- 넘침 시험: 맥북 단위 테스트 대상이 아니므로 실물에서 확인한다. 별도 시험 환경 `roadside_qtest`(큐 길이 1, loop에서 처리 전 지연을 넣는 빌드 플래그)로 드롭이 세어지고 상태 전환이 깨지지 않는지 본다. 이 빌드는 시험 전용이고 일반 `roadside` 빌드에는 영향 없음.
 
-큐: lib/core의 **단일 생산자·단일 소비자 고정 크기 링 버퍼**(용량 32 예정, 넘치면 새 이벤트를 버리고 드롭 수 증가).
-- FreeRTOS 큐 대신 쓰는 이유: 맥북에서 넘침·순환·동시 접근(스레드 2개 + ThreadSanitizer)까지 단위 테스트할 수 있다.
-- 대가: 직접 만든 동시성 코드 → 생산자 1·소비자 1 전제를 코드 주석과 테스트로 고정한다.
-- 넘칠 때 새 이벤트를 버려도 되는 이유: 경고 판단에는 "최근에 받았다"만 필요하고, 큐 안의 이벤트가 이미 그 사실을 담고 있다.
+이벤트 구조(고정 크기, 값 복사): `{ uint32_t cb_us; uint8_t payload[6]; int8_t rssi; }`
+콜백 안에서 하는 일: Manufacturer Data 꺼내기 → `keyring::parsePayload()`(6바이트 비교, 할당 없음) → 키링이면 큐에 보냄. 모든 광고 수는 원자 카운터 1개. **Serial·GPIO·WarningController 호출 금지.**
 
-이벤트 시각은 콜백에서 찍은 `millis()` → 스캔 종료 시각으로 기록하던 오차(최대 약 1.1초)가 사라진다. 큐는 FIFO, 생산자 하나라 시각이 단조 증가하고, `loop()`가 큐를 먼저 비운 다음 `update(millis())`를 부르므로 `lastSeen ≤ now`가 유지된다.
+## 4. 스캔 이상 구분과 복구 정책 (v1의 "10초 무광고 → 재시작" 철회)
 
-## 4. 이상 구분과 복구 정책
+광고가 안 들어오는 것만으로는 고장과 "주변에 기기 없음"을 구분할 수 없다. 그래서 **확정적 근거**와 **관찰 정보**를 나눈다.
 
-| 상황 | 판단 근거 | 로그 | 복구 | 경고 상태 |
-|---|---|---|---|---|
-| 키링 신호 소실 | 스캔 정상(아래 이상 없음) + 키링 이벤트가 timeout(3000ms) 동안 없음 | `[STATE] WARNING -> WAITING` | 없음(정상 동작) | WAITING (기존) |
-| 스캔 시작 실패 | `start(0)`이 false | `[SCAN ERROR]` (기존 형식) | 1초 뒤 재시도 | 변경 없음 → 실패가 이어지면 timeout 뒤 WAITING (기존과 같음) |
-| 스캔이 끝나 버림 | 완료 콜백 호출(연속 스캔에선 원래 오지 않음) | `[SCAN ENDED]` | 즉시 `start(0)` 재시작 | 변경 없음 |
-| 수신기 이상 **의심** | 모든 기기의 광고가 `kStallMs`(예정 10000ms) 동안 0개 | `[SCAN STALL?]` (구간당 1회) | `stop()` → `start(0)` 재시작, 재시작 횟수 기록 | 변경 없음 |
-| 큐 넘침 | 드롭 수 증가 | `[ALIVE] ... q_drop=` | 없음(진단) | 변경 없음 |
+| 구분 | 근거 | 로그 | 복구 |
+|---|---|---|---|
+| 스캔 시작 거부 (확정) | `start(0)`이 false (동기 오류) | `[SCAN ERROR] start` | 재시도 |
+| 스캔 시작 실패 (확정) | 커스텀 GAP 핸들러의 `SCAN_START_COMPLETE_EVT` status ≠ 성공 | `[SCAN ERROR] start_status=<값>` | 재시도 |
+| 스캔이 멈춤 (확정) | 우리가 `stop()`하지 않았는데 `SCAN_STOP_COMPLETE_EVT` 또는 완료 콜백(`INQ_CMPL`) | `[SCAN ERROR] stopped` | 재시도 |
+| 광고 없음 (관찰) | 모든 기기 광고가 일정 시간 0개 | `[ALIVE]`의 `adv=` 증가 없음으로만 보임. **별도 경보·재시작 없음** | 없음 |
+| 키링 신호 소실 (정상 동작) | 확정 이상 없음 + 키링 이벤트가 timeout(3000ms) 동안 없음 | `[STATE] WARNING -> WAITING` | 없음 |
+| 큐 넘침 / 버려진 광고 보고 | 드롭 수, `num_dis` | `[ALIVE] ... q_drop= num_dis=` | 없음(진단) |
 
-- **주변 광고 0개 ≠ 고장.** BLE 기기가 없는 장소에서도 0개가 된다. 그래서 이름에 `?`를 붙이고 판정이 아니라 "재시작해 볼 근거"로만 쓴다. 재시작은 정상 상태에서도 해가 없다.
-- 자동 재부팅(watchdog)과 고장 시 LED 표시는 넣지 않는다(상태가 초기화되고, 안전 정책이 정해지지 않음). `[ALIVE]`가 끊기면 loop 정지다.
+재시도 정책: 확정 이상일 때만, 간격 1초 → 2 → 4 … 최대 30초(연속 실패 시 늘림, 성공하면 1초로 초기화). 재시도 횟수는 `[ALIVE]`의 `restarts=`.
+경고 상태: 이상이 있어도 판단 규칙은 그대로(새 신호 없음 = timeout 뒤 WAITING). 고장 시 LED 표시·자동 재부팅은 안전 정책이 정해질 때까지 넣지 않는다. loop 자체가 멈추면 `[ALIVE]`가 끊긴다(기존과 같음).
+GAP 핸들러도 BT 태스크에서 실행되므로 원자 변수에 사실만 기록하고, 로그·복구는 `loop()`에서 한다.
 
-`[ALIVE]` 추가 값(기존 앞부분 형식 유지, 뒤에 덧붙임): `adv=`(모든 광고 누적), `kr=`(키링 이벤트 누적), `q_drop=`, `q_max=`(큐 최대 사용량), `restarts=`, `heap=`/`heap_min=`(`ESP.getFreeHeap/getMinFreeHeap`).
+## 5. 지연 측정 — 단계별 시각
 
-## 5. 시험
+ESP32 안에서 잴 수 있는 시각 (컨트롤러 수신 시각은 API에 없어 측정 불가):
 
-### 하드웨어 없이 (맥북, `scripts/run_tests.sh`)
+| 시각 | 의미 |
+|---|---|
+| `cb_us` | 콜백 진입(`micros()`) = 호스트 스택이 광고를 앱에 넘긴 시각 |
+| 큐 입력 | 콜백에서 보내기 직후 — 콜백 처리 시간 = 입력 − 진입 |
+| `loop_us` | `loop()`가 꺼낸 시각 — 큐 대기 = 꺼냄 − 진입 |
+
+출력: `[RX] t=..ms keyring=.. rssi=.. q_us=<큐 대기>`(기존 앞부분 유지, 뒤에 덧붙임), `[ALIVE]`에 구간별 최대·평균(`cb_max_us`, `q_max_us`, `q_avg_us`).
+도구 영향: `rssi_survey.py`의 `[RX]` 정규식은 줄 끝(`$`)을 요구하므로 덧붙인 값 때문에 맞지 않게 된다 → 구현 때 함께 수정. `onoff_latency.py`는 영향 없음.
+
+XIAO 쪽과 ESP32 쪽 분리:
+- 연결 → 첫 RX (맥북 시각) = XIAO 부팅 + XIAO 시리얼 대기(코드상 최대 2000ms) + 광고 시작 → ESP32 수신·처리.
+- ESP32 처리 지연은 위 단계별 시각으로 직접 잰다.
+- XIAO 쪽(전원 → 광고 시작)은 XIAO가 광고 시작 시각을 알려야 정확히 잴 수 있다: XIAO `[ALIVE]`에 `adv_at=<광고 시작 millis>` 덧붙이기(로그만, BLE 동작 불변) — **XIAO 펌웨어 변경이므로 사용자 승인 필요**. 승인 전에는 "연결 → 첫 RX"의 전후 차이로 ESP32 쪽 변화만 비교한다.
+
+## 6. 시험
+
+### 하드웨어 없이 (맥북)
 
 | 시험 | 확인 |
 |---|---|
 | 기존 88개 검사 | 그대로 통과 (회귀) |
-| 링 버퍼: 빈 큐 pop 실패, 순서 유지, 용량까지 push, 넘침 시 드롭 수·기존 내용 보존, 순환(wrap) 반복 | 단위 테스트 |
-| 링 버퍼 동시 접근: 생산자·소비자 스레드로 10만 개, 누락 = 드롭 수, 순서 유지 | 스레드 테스트 + ThreadSanitizer 빌드 |
-| 스캔 이상 판단: 광고 계속 → 정상, `kStallMs` 무광고 → 1회만 보고, 광고 재개 → 해제, 경계값, millis 순환 | 단위 테스트 |
-| 상태 전환(광고별 이벤트): 100ms 간격 키링 이벤트 → WARNING 1회만, 마지막 이벤트 + 3000ms에 WAITING, 중복 이벤트로 추가 전환 없음 | 단위 테스트 |
+| 상태 전환 (광고별 이벤트): 100ms 간격 키링 이벤트 → WARNING 1회, 마지막 이벤트 + 3000ms에 WAITING, 중복 이벤트로 추가 전환 없음, 이벤트 사이 `update()` 반복 호출에도 조기 해제 없음 | `test_core.cpp`에 추가 |
+| 재시도 간격 계산(1→2→4…30초, 성공 시 초기화), millis 순환 | 순수 함수로 분리해 단위 테스트 |
+| 콜백 필터(6바이트 판별) | 기존 `parsePayload` 테스트가 담당 |
 
-### 실물 (변경 후, 기준선과 같은 절차)
+### 실물
 
-- `scripts/onoff_latency.py`로 ON/OFF 5회 → 기준선과 비교: 해제 지연(USB 분리 → WAITING, 마지막 RX → WAITING) 중앙값·최대, 감지 지연(USB 연결 → 첫 RX), 초당 수신 수, 최대 수신 간격, 오수신, 이상 이벤트.
-- **XIAO 쪽 지연과 ESP32 쪽 지연 분리**: 연결 → 첫 RX = XIAO 부팅 + XIAO 시리얼 대기(코드상 최대 2000ms, 맥북에서 아무도 포트를 열지 않으면 2000ms 전부) + ESP32 처리 지연. 변경 전후 차이가 ESP32 처리 지연 변화이고, XIAO 대기는 XIAO 쪽 시각 측정(별도 결정)으로 확인한다.
-- 장시간: XIAO ON 상태로 30분 이상 → `[ALIVE]`의 heap·heap_min 추세, q_drop, restarts.
+| 시험 | 확인 |
+|---|---|
+| ON/OFF 5회 (`onoff_latency.py`) | 기준선과 비교: 해제 지연(분리 → WAITING, 마지막 RX → WAITING) 중앙값·최대, 연결 → 첫 RX, 초당 수신, 최대 수신 간격, 오수신, 이상 이벤트 |
+| 단계별 시각 | `q_us`, `cb_max_us` 분포 |
+| 큐 넘침 (`roadside_qtest`) | 드롭이 세어지고, 상태 전환이 깨지지 않으며, 멈추지 않음 |
+| 장시간 30분 이상 | `heap`·`heap_min` 추세, `q_drop`, `num_dis`, `restarts` |
 
 ### 성공 기준 (사용자 지정)
 
 유효 광고 → WARNING / 소실 → WAITING / 중복 광고로 불필요한 전환 없음 / 수신 빈도·지연의 실제 개선을 실측으로 확인 / 큐 넘침·스캔 이상을 로그로 진단 가능 / 비정상 메모리 증가·정지 없음.
+
+## 7. 현재 ESP32 바이너리 — 확인된 것과 미확인
+
+| 항목 | 상태 |
+|---|---|
+| 실행 로그 형식이 현재 `src/roadside/main.cpp`와 일치 (`[ROADSIDE] state= timeout=`, `[ALIVE] roadside ... scans_ok= scan_errors= state=`, `[LED]`, `[RX]`, `[STATE]`) | **확인** (로그 관찰) |
+| `src/roadside/main.cpp`는 첫 커밋 `ea8a829` 이후 변경 없음 | **확인** (`git log`) |
+| 실제 빌드 커밋·빌드 환경·업로드 방법 | **미확인** (사용자 기억 없음, 기록 없음) |
+| 로그 형식 일치 ≠ 같은 바이너리. 예: 로그 문자열이 같아도 설정값·라이브러리 버전이 다를 수 있다 | 주의 |
+
+확인 방법(선택, 승인 필요): 기준선 측정 후 `esptool.py read_flash`로 앱 영역을 읽어 앱 헤더(`esp_app_desc_t`: 빌드 날짜·시각, ELF SHA256)를 확인. 읽기 전용이지만 포트를 열면 ESP32가 리셋되고, 복구한 esptool의 첫 실물 사용이 된다. 기준선을 대체하지 않으며, 기준선은 "이 보드에 올라 있던 미확인 빌드"로 기록한다.
