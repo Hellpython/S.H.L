@@ -17,7 +17,7 @@
 | Phase 2 USB 재연결 후 실행 | **확인** (7절) |
 | ESP32 업로드 도구(esptool) | `intelhex` 누락으로 동작 안 함 → **승인 후 재설치로 복구, 실행 확인** (9절). 실제 ESP32 업로드는 미검증 |
 | Phase 3 BLE 광고 구현·업로드 | **확인** (10절, nrfutil `Device programmed.`, `[ALIVE]` 출력) |
-| Phase 3 독립 수신(맥북 BLE 스캔) | **수신 확인**: `FF FF 43 53 01 01`. 송신원이 XIAO인지(OFF 시 소실) **미검증** |
+| Phase 3 독립 수신(맥북 BLE 스캔) | **확인**: XIAO ON → `FF FF 43 53 01 01` 19건 / USB 분리 → 0건 (10절). 100ms 주기는 미검증 |
 | Phase 4 ESP32 실제 수신, WAITING → WARNING → WAITING | **미검증** |
 | Phase 5 반복·실패·경계 시험 (실물) | **미검증** |
 | 배터리 구동, LED판 점등, 거리 기반 감지 | **범위 밖. 구현·검증 안 함** |
@@ -319,4 +319,16 @@ device=46EDB294-2125-B01B-43C4-4AD07046812C data=FF FF 43 53 01 01 name=None com
 
 - Manufacturer Data `FF FF 43 53 01 01` = 기존 패킷과 일치. Company ID 1개(중복 없음), 이름·서비스 UUID 없음.
 - macOS는 BLE 주소 대신 임의 UUID를 보여 주고 중복 광고를 걸러 보고한다(추정) → 315ms 간격은 송출 주기 측정값이 아니다. **100ms 송출 주기는 미검증.**
-- **송신원이 XIAO라는 확인은 미검증**: 같은 바이트를 내는 다른 장치(예: 켜진 ESP32 키링)가 없다는 확인, 또는 XIAO 전원 OFF 시 소실 확인이 필요.
+- 송신원 확인 (아래 OFF 시험).
+
+### 송신원 확인 — XIAO USB 분리 후 스캔 (확인)
+
+사용자가 XIAO USB를 분리 → 포트 소실 감지 3초 뒤 같은 스크립트로 15초 스캔:
+
+```
+19:36:37 XIAO port gone -> wait 3s then scan
+scan 15s: keyring(0xFFFF) adv=0, other adv=373
+```
+
+- XIAO ON: 키링 광고 19건 → OFF: 0건, 다른 BLE 광고는 계속 수신(스캐너 정상). → 앞의 `FF FF 43 53 01 01`은 XIAO가 보낸 것.
+- 1회 ON/OFF 관찰이다. 반복 시험은 Phase 5에서.
