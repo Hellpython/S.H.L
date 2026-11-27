@@ -15,7 +15,7 @@
 | Phase 2 USB 업로드 | 실패 2회 후 **3회째 성공** (7절, nrfutil `Device programmed.`) |
 | Phase 2 시리얼 로그 | **확인** (`[ALIVE] keyring id=1`) |
 | Phase 2 USB 재연결 후 실행 | **확인** (7절) |
-| ESP32 업로드 도구(esptool) | **동작 안 함** — `intelhex` 없음 (9절) |
+| ESP32 업로드 도구(esptool) | `intelhex` 누락으로 동작 안 함 → **승인 후 재설치로 복구, 실행 확인** (9절). 실제 ESP32 업로드는 미검증 |
 | Phase 3 BLE 광고 구현·실제 송신 | **미구현 / 미검증** |
 | Phase 4 ESP32 실제 수신, WAITING → WARNING → WAITING | **미검증** |
 | Phase 5 반복·실패·경계 시험 (실물) | **미검증** |
@@ -236,3 +236,32 @@ ModuleNotFoundError: No module named 'intelhex'
 - 결론: **현재 ESP32 업로드(`lab.sh upload`)는 esptool 시작 단계에서 실패한다.** 복구 전 ESP32에 업로드하지 않는다.
 - 복구 후보(사용자 승인 대기): `pio pkg install -g -t "platformio/tool-esptoolpy@2.41100.260830" -f` → 같은 가짜 포트 시험에서 `intelhex` 오류 없이 포트 열기 단계에서 실패하는지 확인.
 - 재발 위험: Seeed 플랫폼이 nRF 업로드에도 pioarduino `tool-esptoolpy`를 uploader로 선언 → `pio run -e keyring_xiao -t upload`가 같은 이름 패키지를 다시 건드릴 수 있다. XIAO 업로드 전후에 `ls ~/.platformio/packages | grep esptool`로 확인한다.
+
+### 9-1. 복구 (2026-11-27, 사용자 승인)
+
+복구 전 상태:
+
+```
+tool-esptoolpy                         2.41100.260830 (platformio)   _contrib 없음
+tool-esptoolpy@src-ad177005bd80...     5.1.2 (pioarduino, Seeed 플랫폼용)   _contrib 없음
+```
+
+```
+$ ~/.platformio/penv/bin/pio pkg install -g -t "platformio/tool-esptoolpy@2.41100.260830" -f
+...
+Successfully installed bitarray-3.12.4 bitstring-4.3.1 cffi-2.1.1 cryptography-46.0.7 ecdsa-0.19.2 intelhex-2.3.0 pycparser-3.12 reedsolo-1.7.0 six-1.17.0
+Tool Manager: tool-esptoolpy@2.41100.260830 has been installed!
+(rc=0)
+```
+
+검증 (실제 보드에 업로드하지 않음):
+
+| 확인 | 결과 |
+|---|---|
+| `tool-esptoolpy/_contrib`에 intelhex 2.3.0 등 의존성 | 있음 |
+| `esptool.py version` | `esptool.py v4.11.0` |
+| `pio run -e keyring -t upload --upload-port /dev/cu.nonexistent-selftest` | `esptool.py v4.11.0` 실행 → `Could not open /dev/cu.nonexistent-selftest` (포트 단계에서 실패 = 의도한 결과). `intelhex` 오류 없음 |
+| XIAO 업로드 경로 충돌: `pio run -e keyring_xiao -t upload --upload-port /dev/cu.nonexistent-selftest` | 패키지 설치 없음, `could not open port`에서 정지. 이후 `tool-esptoolpy` 2.41100.260830 + `_contrib` 유지, ESP32 가짜 포트 시험 재실행도 동일하게 정상 |
+| 회귀 | `keyring`·`roadside`·`keyring_xiao` 빌드 SUCCESS, 단위 테스트 88/0, `test_lab.sh` 27/0 |
+
+남은 확인: 실제 ESP32 보드 업로드(`lab.sh upload`)는 **미검증**. pioarduino 5.1.2 사본(`@src-...`)은 지우지 않았다(Seeed 플랫폼 업로드 경로가 이 사본이 있어 재설치를 건너뜀).
