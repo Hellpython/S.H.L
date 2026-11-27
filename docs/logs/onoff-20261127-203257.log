@@ -1,0 +1,259 @@
+20:32:58.046 [HOST] logger start port=/dev/cu.usbserial-0001 xiao_usb=ON
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 61
+20:32:58.048 ets Jun  8 2016 00:22:57
+20:32:58.048 
+20:32:58.048 rst:ets Jun  8 2016 00:22:57
+20:32:58.048 
+20:32:58.048 rst:ets Jun  8 2016 00:22:57
+20:32:58.048 
+20:32:58.048 rst:ets Jun  8 2016 00:22:57
+20:32:58.048 
+20:32:58.048 rst:ets Jun  8 2016 00:22:57
+20:32:58.048 
+20:32:58.048 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.049 
+20:32:58.049 rst:ets Jun  8 2016 00:22:57
+20:32:58.050 
+20:32:58.050 rst:ets Jun  8 2016 00:22:57
+20:32:58.050 
+20:32:58.050 rst:ets Jun  8 2016 00:22:57
+20:32:58.050 
+20:32:58.050 rst:ets Jun  8 2016 00:22:57
+20:32:58.050 
+20:32:58.050 rst:ets Jun  8 2016 00:22:57
+20:32:58.050 
+20:32:58.050 rst:ets Jun  8 2016 00:22:57
+20:32:58.050 
+20:32:58.050 rst:ets Jun  8 2016 00:22:57
+20:32:58.050 
+20:32:58.050 rst:ets Jun  8 2016 00:22:57
+20:32:58.050 
+20:32:58.050 rst:ets Jun  8 2016 00:22:57
+20:32:58.059 
+20:32:58.059 rst:ets Jun  8 2016 00:22:57
+20:32:58.059 
+20:32:58.059 rst:ets Jun  8 2016 00:22:57
+20:32:58.059 
+20:32:58.059 rst:ets Jun  8 2016 00:22:57
+20:32:58.059 
+20:32:58.059 rst:ets Jun  8 2016 00:22:57
+20:32:58.059 
+20:32:58.059 rst:0x1 (POWERON_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)
+20:32:58.059 configsip: 0, SPIWP:0xee
+20:32:58.114 clk_drv:0x00,q_drv:0x00,d_drv:0x00,cs0_drv:0x00,hd_drv:0x00,wp_drv:0x00
+20:32:58.114 mode:DIO, clock div:2
+20:32:58.114 load:0x3fff0030,len:1184
+20:32:58.114 load:0x40078000,len:13232
+20:32:58.114 load:0x40080400,len:3028
+20:32:58.114 entry 0x400805e4
+20:32:59.261 [ROADSIDE] state=WAITING timeout=3000ms
+20:33:00.294 [LED] ON
+20:33:00.294 [RX] t=1740ms keyring=1 rssi=-70
+20:33:00.294 [STATE] WAITING -> WARNING t=1740ms
+20:33:00.893 [HOST] XIAO USB DISCONNECTED
+20:33:01.378 [RX] t=2840ms keyring=1 rssi=-66
+20:33:04.656 [LED] OFF
+20:33:04.657 [STATE] WARNING -> WAITING t=6089ms
+20:33:09.048 [ALIVE] roadside t=10493ms scans_ok=9 scan_errors=0 state=WAITING
+20:33:16.170 [HOST] XIAO USB CONNECTED
+20:33:18.776 [GARBLED] ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 31 20 72 73 73 69 3d 2d 35 34
+20:33:18.776 [STATE] WAITING -> WARNING t=20207ms
+20:33:19.815 [RX] t=21246ms keyring=1 rssi=-51
+20:33:19.815 [ALIVE] roadside t=21260ms scans_ok=19 scan_errors=0 state=WARNING
+20:33:20.849 [RX] t=22283ms keyring=1 rssi=-57
+20:33:21.938 [RX] t=23381ms keyring=1 rssi=-61
+20:33:23.030 [RX] t=24479ms keyring=1 rssi=-59
+20:33:24.125 [RX] t=25589ms keyring=1 rssi=-62
+20:33:25.194 [RX] t=26630ms keyring=1 rssi=-63
+20:33:26.213 [RX] t=27667ms keyring=1 rssi=-65
+20:33:27.304 [RX] t=28764ms keyring=1 rssi=-62
+20:33:28.439 [RX] t=29863ms keyring=1 rssi=-64
+20:33:29.434 [RX] t=30899ms keyring=1 rssi=-57
+20:33:30.482 [RX] t=31938ms keyring=1 rssi=-57
+20:33:30.482 [ALIVE] roadside t=31952ms scans_ok=29 scan_errors=0 state=WARNING
+20:33:31.565 [RX] t=33035ms keyring=1 rssi=-73
+20:33:31.621 [HOST] XIAO USB DISCONNECTED
+20:33:34.906 [LED] OFF
+20:33:34.907 [STATE] WARNING -> WAITING t=36349ms
+20:33:41.379 [ALIVE] roadside t=42830ms scans_ok=39 scan_errors=0 state=WAITING
+20:33:52.182 [ALIVE] roadside t=53646ms scans_ok=49 scan_errors=0 state=WAITING
+20:33:54.319 [HOST] XIAO USB CONNECTED
+20:33:56.508 [LED] ON
+20:33:56.508 [RX] t=57970ms keyring=1 rssi=-75
+20:33:56.508 [STATE] WAITING -> WARNING t=57970ms
+20:33:57.603 [RX] t=59068ms keyring=1 rssi=-79
+20:33:58.760 [RX] t=60179ms keyring=1 rssi=-67
+20:33:59.796 [GARBLED] ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 31
+20:34:00.898 [RX] t=62315ms keyring=1 rssi=-66
+20:34:01.932 [RX] t=63352ms keyring=1 rssi=-67
+20:34:03.028 [RX] t=64449ms keyring=1 rssi=-69
+20:34:03.028 [ALIVE] roadside t=64465ms scans_ok=59 scan_errors=0 state=WARNING
+20:34:04.071 [RX] t=65488ms keyring=1 rssi=-58
+20:34:05.101 [RX] t=66525ms keyring=1 rssi=-55
+20:34:06.101 [RX] t=67564ms keyring=1 rssi=-54
+20:34:07.133 [RX] t=68600ms keyring=1 rssi=-49
+20:34:08.180 [RX] t=69636ms keyring=1 rssi=-55
+20:34:09.222 [RX] t=70673ms keyring=1 rssi=-47
+20:34:10.322 [RX] t=71768ms keyring=1 rssi=-46
+20:34:11.359 [RX] t=72804ms keyring=1 rssi=-54
+20:34:12.459 [RX] t=73899ms keyring=1 rssi=-54
+20:34:13.561 [RX] t=75004ms keyring=1 rssi=-55
+20:34:13.562 [ALIVE] roadside t=75018ms scans_ok=69 scan_errors=0 state=WARNING
+20:34:14.585 [RX] t=76040ms keyring=1 rssi=-53
+20:34:15.674 [RX] t=77136ms keyring=1 rssi=-52
+20:34:16.717 [RX] t=78172ms keyring=1 rssi=-53
+20:34:17.758 [GARBLED] ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 32
+20:34:18.800 [RX] t=80242ms keyring=1 rssi=-53
+20:34:19.831 [RX] t=81277ms keyring=1 rssi=-54
+20:34:20.929 [RX] t=82372ms keyring=1 rssi=-56
+20:34:22.058 [RX] t=83479ms keyring=1 rssi=-54
+20:34:23.155 [RX] t=84576ms keyring=1 rssi=-54
+20:34:24.246 [RX] t=85681ms keyring=1 rssi=-54
+20:34:24.247 [ALIVE] roadside t=85692ms scans_ok=79 scan_errors=0 state=WARNING
+20:34:25.337 [RX] t=86776ms keyring=1 rssi=-54
+20:34:26.380 [RX] t=87810ms keyring=1 rssi=-55
+20:34:27.477 [RX] t=88906ms keyring=1 rssi=-57
+20:34:28.507 [RX] t=89942ms keyring=1 rssi=-56
+20:34:29.594 [RX] t=91036ms keyring=1 rssi=-55
+20:34:30.693 [RX] t=92141ms keyring=1 rssi=-54
+20:34:31.729 [RX] t=93178ms keyring=1 rssi=-54
+20:34:32.838 [RX] t=94274ms keyring=1 rssi=-54
+20:34:33.867 [RX] t=95310ms keyring=1 rssi=-55
+20:34:34.942 [RX] t=96407ms keyring=1 rssi=-56
+20:34:34.942 [ALIVE] roadside t=96419ms scans_ok=89 scan_errors=0 state=WARNING
+20:34:36.062 [RX] t=97512ms keyring=1 rssi=-56
+20:34:37.158 [RX] t=98607ms keyring=1 rssi=-56
+20:34:38.252 [RX] t=99711ms keyring=1 rssi=-56
+20:34:39.349 [RX] t=100815ms keyring=1 rssi=-57
+20:34:40.383 [RX] t=101850ms keyring=1 rssi=-56
+20:34:41.529 [RX] t=102946ms keyring=1 rssi=-56
+20:34:42.583 [RX] t=104053ms keyring=1 rssi=-57
+20:34:43.628 [RX] t=105090ms keyring=1 rssi=-56
+20:34:44.720 [RX] t=106186ms keyring=1 rssi=-56
+20:34:45.804 [RX] t=107221ms keyring=1 rssi=-56
+20:34:45.805 [ALIVE] roadside t=107233ms scans_ok=99 scan_errors=0 state=WARNING
+20:34:46.891 [RX] t=108317ms keyring=1 rssi=-57
+20:34:47.990 [RX] t=109422ms keyring=1 rssi=-57
+20:34:49.088 [RX] t=110517ms keyring=1 rssi=-60
+20:34:50.132 [RX] t=111551ms keyring=1 rssi=-58
+20:34:51.181 [RX] t=112645ms keyring=1 rssi=-58
+20:34:52.317 [RX] t=113749ms keyring=1 rssi=-62
+20:34:53.387 [RX] t=114854ms keyring=1 rssi=-60
+20:34:54.524 [RX] t=115949ms keyring=1 rssi=-59
+20:34:55.518 [RX] t=116984ms keyring=1 rssi=-60
+20:34:56.654 [RX] t=118078ms keyring=1 rssi=-60
+20:34:56.654 [ALIVE] roadside t=118090ms scans_ok=109 scan_errors=0 state=WARNING
+20:34:57.644 [RX] t=119113ms keyring=1 rssi=-60
+20:34:58.735 [RX] t=120207ms keyring=1 rssi=-60
+20:34:59.900 [RX] t=121313ms keyring=1 rssi=-61
+20:35:00.952 [RX] t=122412ms keyring=1 rssi=-61
+20:35:02.074 [RX] t=123510ms keyring=1 rssi=-60
+20:35:03.178 [RX] t=124618ms keyring=1 rssi=-61
+20:35:04.278 [RX] t=125715ms keyring=1 rssi=-61
+20:35:05.376 [RX] t=126822ms keyring=1 rssi=-61
+20:35:06.485 [RX] t=127917ms keyring=1 rssi=-61
+20:35:07.577 [RX] t=129021ms keyring=1 rssi=-61
+20:35:07.577 [ALIVE] roadside t=129040ms scans_ok=119 scan_errors=0 state=WARNING
+20:35:08.684 [RX] t=130122ms keyring=1 rssi=-65
+20:35:09.719 [RX] t=131157ms keyring=1 rssi=-69
+20:35:10.813 [RX] t=132255ms keyring=1 rssi=-66
+20:35:11.912 [RX] t=133360ms keyring=1 rssi=-65
+20:35:13.004 [RX] t=134456ms keyring=1 rssi=-65
+20:35:14.060 [RX] t=135492ms keyring=1 rssi=-65
+20:35:15.165 [RX] t=136590ms keyring=1 rssi=-65
+20:35:16.210 [RX] t=137627ms keyring=1 rssi=-65
+20:35:17.240 [RX] t=138662ms keyring=1 rssi=-56
+20:35:18.333 [RX] t=139767ms keyring=1 rssi=-57
+20:35:18.333 [ALIVE] roadside t=139780ms scans_ok=129 scan_errors=0 state=WARNING
+20:35:19.374 [RX] t=140804ms keyring=1 rssi=-62
+20:35:20.461 [RX] t=141900ms keyring=1 rssi=-62
+20:35:21.478 [RX] t=142935ms keyring=1 rssi=-55
+20:35:22.609 [RX] t=144033ms keyring=1 rssi=-52
+20:35:23.689 [RX] t=145137ms keyring=1 rssi=-49
+20:35:24.776 [RX] t=146236ms keyring=1 rssi=-50
+20:35:25.882 [RX] t=147332ms keyring=1 rssi=-53
+20:35:26.909 [RX] t=148368ms keyring=1 rssi=-55
+20:35:28.001 [RX] t=149463ms keyring=1 rssi=-58
+20:35:29.145 [RX] t=150569ms keyring=1 rssi=-55
+20:35:29.145 [ALIVE] roadside t=150580ms scans_ok=139 scan_errors=0 state=WARNING
+20:35:30.191 [RX] t=151662ms keyring=1 rssi=-56
+20:35:31.278 [RX] t=152697ms keyring=1 rssi=-54
+20:35:32.367 [RX] t=153800ms keyring=1 rssi=-54
+20:35:33.400 [RX] t=154835ms keyring=1 rssi=-53
+20:35:34.492 [RX] t=155933ms keyring=1 rssi=-54
+20:35:35.591 [RX] t=157029ms keyring=1 rssi=-53
+20:35:36.667 [RX] t=158136ms keyring=1 rssi=-54
+20:35:37.756 [RX] t=159171ms keyring=1 rssi=-54
+20:35:38.830 [RX] t=160269ms keyring=1 rssi=-54
+20:35:39.928 [RX] t=161374ms keyring=1 rssi=-54
+20:35:39.929 [ALIVE] roadside t=161386ms scans_ok=149 scan_errors=0 state=WARNING
+20:35:41.026 [RX] t=162468ms keyring=1 rssi=-54
+20:35:42.062 [RX] t=163503ms keyring=1 rssi=-52
+20:35:43.160 [RX] t=164601ms keyring=1 rssi=-54
+20:35:44.247 [RX] t=165698ms keyring=1 rssi=-54
+20:35:45.386 [RX] t=166804ms keyring=1 rssi=-55
+20:35:46.480 [RX] t=167910ms keyring=1 rssi=-51
+20:35:47.580 [RX] t=169009ms keyring=1 rssi=-56
+20:35:48.656 [RX] t=170045ms keyring=1 rssi=-54
+20:35:49.711 [RX] t=171140ms keyring=1 rssi=-56
+20:35:50.809 [RX] t=172249ms keyring=1 rssi=-56
+20:35:50.809 [ALIVE] roadside t=172261ms scans_ok=159 scan_errors=0 state=WARNING
+20:35:51.915 [RX] t=173345ms keyring=1 rssi=-56
+20:35:53.008 [RX] t=174442ms keyring=1 rssi=-56
+20:35:54.096 [RX] t=175549ms keyring=1 rssi=-56
+20:35:55.130 [RX] t=176588ms keyring=1 rssi=-56
+20:35:56.227 [RX] t=177685ms keyring=1 rssi=-56
+20:35:57.257 [RX] t=178722ms keyring=1 rssi=-54
+20:35:58.068 [HOST] logger end

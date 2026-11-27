@@ -94,44 +94,64 @@ def garbled_tail(text):
     return raw.lstrip(b"\xff").decode("ascii", "replace")
 
 
-def find_transition(seg, kind):
-    """seg에서 상태 전환 줄 (시각, 보드 t ms, 복원 여부). kind: 'WAITING'(OFF) / 'WARNING'(ON).
-    전환 줄이 깨졌어도 끝부분에 '<kind> t=..ms'가 남아 있으면 그 시각으로 복원한다."""
-    want = "[STATE] WARNING -> WAITING" if kind == "WAITING" else "[STATE] WAITING -> WARNING"
-    for t, x in seg:
-        if x.startswith(want):
-            return t, int(STATE_RE.match(x).group(3)), False
-        if x.startswith("[GARBLED]"):
-            m = re.search(kind[-4:] + r" t=(\d+)ms$", garbled_tail(x))  # 'TING t=..' 형태도 잡는다
-            if m:
-                return t, int(m.group(1)), True
-    return None
+def is_bad(x):
+    return x.startswith(("[ROADSIDE]", "[SCAN ERROR]", "[GARBLED]"))
 
 
-def analyze(events):
+def analyze(events, source=""):
     """회차별 결과. OFF: USB 분리 → WAITING, ON: USB 연결 → WARNING.
-    깨진 줄은 측정 구간(이벤트 ~ 전환 + 0.2초) 안이면 영향으로, 밖이면 참고로 센다."""
+
+    신뢰도 등급
+      A: 직전 상태를 알려 준 줄 ~ 이벤트 ~ 전환(+0.2초) 사이에 깨진 줄·리셋·스캔 오류가 없고 전환 줄이 온전
+      B: 직전 상태는 확실하고, (a) 전환 줄이 깨졌지만 남은 끝부분이 그 전환에만 나오는 문자열
+         ('TING t=..ms' = WAITING, 'NING t=..ms' = WARNING)이고 뒤이은 온전한 [ALIVE]가 같은 상태를 보이거나,
+         (b) 전환 줄은 온전하지만 측정 구간 안에 깨진 줄이 있다(보조 값이 틀렸을 수 있음)
+      C: 직전 상태 불확실(상태 줄과 이벤트 사이에 깨진 줄), 직전 상태가 기대와 다름, 전환 확인 불가
+    결과: 정상 / 실패(로그는 온전한데 기대와 다른 동작) / 판정불가(C)
+    """
     results = []
     marks = [(i, t, x) for i, (t, x) in enumerate(events) if x.startswith("[HOST] XIAO USB")]
     for k, (i, t0, text) in enumerate(marks):
         stop = marks[k + 1][0] if k + 1 < len(marks) else len(events)
         seg = events[i + 1:stop]
-        state_before = None
-        for _, x in reversed(events[:i]):  # 직전 상태: 마지막 [STATE] 또는 [ALIVE]의 state
-            m = STATE_RE.match(x) or ALIVE_RE.match(x)
-            if m:
-                state_before = m.group(2)
-                break
         off = text.endswith("DISCONNECTED")
-        r = {"kind": "OFF" if off else "ON", "at": t0, "state_before": state_before}
-        trans = find_transition(seg, "WAITING" if off else "WARNING")
-        window_end = (trans[0] if trans else seg[-1][0] if seg else t0) + 0.2
-        bad = [x for t, x in seg if x.startswith(("[ROADSIDE]", "[SCAN ERROR]", "[GARBLED]"))
-               and t <= window_end and not (trans and trans[2] and t == trans[0])]
-        r["anomalies_in_window"] = len(bad)
-        r["anomalies_other"] = sum(1 for t, x in seg if x.startswith(("[ROADSIDE]", "[SCAN ERROR]", "[GARBLED]"))) \
-            - len(bad) - (1 if trans and trans[2] else 0)
-        r["recovered"] = bool(trans and trans[2])
+        expect_before, expect_after = ("WARNING", "WAITING") if off else ("WAITING", "WARNING")
+        r = {"source": source, "kind": "OFF" if off else "ON", "at": t0, "notes": []}
+
+        # 직전 상태: 마지막 온전한 [STATE]/[ALIVE]. 그 뒤 ~ 이벤트 사이에 이상이 있으면 불확실
+        state_before, state_idx = None, None
+        for j in range(i - 1, -1, -1):
+            m = STATE_RE.match(events[j][1]) or ALIVE_RE.match(events[j][1])
+            if m:
+                state_before, state_idx = m.group(2), j
+                break
+        between_bad = state_idx is not None and any(is_bad(x) for _, x in events[state_idx + 1:i])
+        r["state_before"] = state_before
+
+        # 상태 전환: 온전한 줄 우선, 없으면 깨진 줄의 끝부분으로 복원
+        want = f"[STATE] {expect_before} -> {expect_after}"
+        trans = None
+        for t, x in seg:
+            if x.startswith(want):
+                trans = (t, int(STATE_RE.match(x).group(3)), False)
+                break
+            if x.startswith("[GARBLED]"):
+                m = re.search(("TING" if off else "NING") + r" t=(\d+)ms$", garbled_tail(x))
+                if m:
+                    trans = (t, int(m.group(1)), True)
+                    break
+        corroborated = False
+        if trans and trans[2]:
+            after = [x for t, x in seg if t > trans[0]]
+            alive = next((ALIVE_RE.match(x) for x in after if ALIVE_RE.match(x)), None)
+            contrary = any(STATE_RE.match(x) for x in after
+                           if STATE_RE.match(x) and STATE_RE.match(x).group(1) == expect_after)
+            corroborated = bool(alive) and alive.group(2) == expect_after and not contrary
+        window_end = (trans[0] if trans else (seg[-1][0] if seg else t0)) + 0.2
+        in_window = [x for t, x in seg if is_bad(x) and t <= window_end and not (trans and trans[2] and t == trans[0])]
+        r["anomalies_in_window"] = len(in_window)
+        r["anomalies_other"] = sum(1 for _, x in seg if is_bad(x)) - len(in_window) - (1 if trans and trans[2] else 0)
+
         if trans:
             r["host_delay_s"] = trans[0] - t0
         if off:
@@ -139,9 +159,8 @@ def analyze(events):
                 rx_before = [x for t, x in events[:i + 1] + seg if RX_RE.match(x) and t <= trans[0]]
                 if rx_before:
                     r["lastrx_to_waiting_ms"] = trans[1] - int(RX_RE.match(rx_before[-1]).group(1))
-                r["rx_after_waiting"] = sum(1 for t, x in seg if RX_RE.match(x) and t > trans[0])
+            r["rx_after_waiting"] = sum(1 for t, x in seg if RX_RE.match(x) and trans and t > trans[0])
             r["rx_after_unplug"] = sum(1 for t, x in seg if RX_RE.match(x) and (not trans or t < trans[0]))
-            ok = state_before == "WARNING" and trans is not None and r.get("rx_after_waiting", 1) == 0
         else:
             rx = [(t, x) for t, x in seg if RX_RE.match(x)]
             if rx:
@@ -152,10 +171,30 @@ def analyze(events):
                 r["rx_count"] = len(rx)
                 r["rx_per_s"] = (len(rx) - 1) / span if span > 0 else None
                 r["max_rx_gap_ms"] = max(gaps) if gaps else None
-            ok = state_before == "WAITING" and trans is not None
-        # 측정 구간 안의 이상이 있으면, 마지막RX 같은 보조 값이 틀렸을 수 있다 -> 무효
-        r["verdict"] = ("무효" if r["anomalies_in_window"] else
-                        ("성공(복원)" if r["recovered"] else "성공") if ok else "실패")
+
+        # 등급·결과
+        if state_before is None or between_bad:
+            r["grade"], r["outcome"] = "C", "판정불가"
+            r["notes"].append("직전 상태 불확실")
+        elif state_before != expect_before:
+            r["grade"], r["outcome"] = "C", "판정불가"
+            r["notes"].append(f"직전 상태 {state_before} (기대 {expect_before})")
+        elif not trans:
+            clean = not any(is_bad(x) for _, x in seg)
+            r["grade"], r["outcome"] = ("A", "실패") if clean else ("C", "판정불가")
+            r["notes"].append("전환 없음")
+        elif trans[2] and not corroborated:
+            r["grade"], r["outcome"] = "C", "판정불가"
+            r["notes"].append("복원 전환을 뒤이은 [ALIVE]로 확인 못 함")
+        else:
+            r["grade"] = "B" if (trans[2] or in_window) else "A"
+            if trans[2]:
+                r["notes"].append("전환 줄 복원")
+            if in_window:
+                r["notes"].append("구간 안 이상 → 보조 값 신뢰 낮음")
+            r["outcome"] = "실패" if off and r["rx_after_waiting"] else "정상"
+            if off and r["rx_after_waiting"]:
+                r["notes"].append("WAITING 뒤 수신(오수신 후보)")
         results.append(r)
     return results
 
@@ -169,43 +208,55 @@ def median_max(values):
     return f"중앙값 {med:.2f} / 최대 {v[-1]:.2f} (n={len(v)})"
 
 
+def print_stats(title, rs):
+    offs = [r for r in rs if r["kind"] == "OFF"]
+    ons = [r for r in rs if r["kind"] == "ON"]
+
+    def aux(rows, key):  # 측정 구간 안에 이상이 있는 회차의 보조 값은 쓰지 않는다
+        return (r.get(key) for r in rows if r["anomalies_in_window"] == 0)
+
+    print(f"\n{title}: OFF {len(offs)}개, ON {len(ons)}개 (보조 값은 구간 안 이상이 없는 회차만)")
+    print(f"  분리→WAITING s       {median_max(r.get('host_delay_s') for r in offs)}")
+    print(f"  마지막RX→WAITING ms  {median_max(aux(offs, 'lastrx_to_waiting_ms'))}")
+    print(f"  연결→WARNING s       {median_max(r.get('host_delay_s') for r in ons)}")
+    print(f"  ON 구간 RX/s          {median_max(aux(ons, 'rx_per_s'))}")
+    print(f"  ON 구간 최대RX간격 ms {median_max(aux(ons, 'max_rx_gap_ms'))}")
+
+
 def cmd_analyze(args):
-    results = analyze(parse(args.log))
+    results = []
+    for path in args.log:
+        results += analyze(parse(path), os.path.basename(path))
     if not results:
         print("XIAO USB 연결/분리 이벤트가 없습니다.")
         return
     for n, r in enumerate(results, 1):
         at = time.strftime("%H:%M:%S", time.gmtime(r["at"]))
         d = r.get("host_delay_s")
-        line = f"{n:>2} {r['kind']:>3} {at} 직전={r['state_before']}"
+        line = f"{n:>2} {r['source'][:22]:>22} {r['kind']:>3} {at} 직전={r['state_before']}"
         if r["kind"] == "OFF":
-            line += (f" 분리→WAITING={d:.2f}s" if d is not None else " 분리→WAITING=-")
+            line += f" 분리→WAITING={d:.2f}s" if d is not None else " 분리→WAITING=-"
             line += (f" 마지막RX→WAITING={r.get('lastrx_to_waiting_ms', '-')}ms"
                      f" 분리후RX={r['rx_after_unplug']} WAITING후RX={r.get('rx_after_waiting', '-')}")
         else:
-            line += (f" 연결→WARNING={d:.2f}s" if d is not None else " 연결→WARNING=-")
+            line += f" 연결→WARNING={d:.2f}s" if d is not None else " 연결→WARNING=-"
             fr = r.get("first_rx_s")
             line += f" 연결→첫RX={fr:.2f}s" if fr is not None else " 연결→첫RX=-"
             rate = r.get("rx_per_s")
             line += f" RX={r.get('rx_count', 0)} RX/s={rate:.2f}" if rate else f" RX={r.get('rx_count', 0)}"
             line += f" 최대RX간격={r.get('max_rx_gap_ms') or '-'}ms"
-        line += f" 이상(구간안/밖)={r['anomalies_in_window']}/{r['anomalies_other']} 판정={r['verdict']}"
+        line += (f" 이상(구간안/밖)={r['anomalies_in_window']}/{r['anomalies_other']}"
+                 f" 등급={r['grade']} 결과={r['outcome']}")
+        if r["notes"]:
+            line += f" ({'; '.join(r['notes'])})"
         print(line)
-    ok = [r for r in results if r["verdict"].startswith("성공")]
-    offs = [r for r in ok if r["kind"] == "OFF"]
-    ons = [r for r in ok if r["kind"] == "ON"]
-    print("\n성공 회차 요약 (복원 포함)")
-    print(f"  분리→WAITING s       {median_max(r.get('host_delay_s') for r in offs)}")
-    print(f"  마지막RX→WAITING ms  {median_max(r.get('lastrx_to_waiting_ms') for r in offs)}")
-    print(f"  연결→WARNING s       {median_max(r.get('host_delay_s') for r in ons)}")
-    print(f"  ON 구간 RX/s          {median_max(r.get('rx_per_s') for r in ons)}")
-    print(f"  ON 구간 최대RX간격 ms {median_max(r.get('max_rx_gap_ms') for r in ons)}")
-    print(f"  회차: OFF {len([r for r in results if r['kind'] == 'OFF'])} (성공 {len(offs)}), "
-          f"ON {len([r for r in results if r['kind'] == 'ON'])} (성공 {len(ons)})")
-    print("판정: OFF 성공 = 직전 WARNING + WAITING 전환 + 이후 오수신 없음 / ON 성공 = 직전 WAITING + WARNING 전환."
-          " 측정 구간(이벤트~전환+0.2초) 안에 리셋·스캔 오류·깨진 줄이 있으면 무효."
-          " 성공(복원) = 깨진 전환 줄의 남은 끝부분('... t=..ms')에서 시각을 읽음."
-          " 연결→첫RX는 첫 [RX] 줄이 깨지면 늦게 잡힐 수 있어 연결→WARNING을 주 지표로 쓴다.")
+    ok = [r for r in results if r["outcome"] == "정상"]
+    print_stats("주 통계 — 등급 A, 결과 정상", [r for r in ok if r["grade"] == "A"])
+    print_stats("보조 통계 — 등급 A+B, 결과 정상", [r for r in ok if r["grade"] in ("A", "B")])
+    fails = [r for r in results if r["outcome"] == "실패"]
+    print(f"\n실패 {len(fails)}개, 판정불가(C) {sum(1 for r in results if r['grade'] == 'C')}개")
+    print("등급: A 온전 / B 복원·구간 안 이상(보조 값 신뢰 낮음) / C 판정불가. "
+          "연결→첫RX는 첫 [RX] 줄이 깨지면 늦게 잡혀 연결→WARNING을 주 지표로 쓴다.")
 
 
 def main():
@@ -217,7 +268,7 @@ def main():
     r.add_argument("--out")
     r.set_defaults(func=cmd_record)
     a = sub.add_parser("analyze")
-    a.add_argument("log")
+    a.add_argument("log", nargs="+")
     a.set_defaults(func=cmd_analyze)
     args = p.parse_args()
     args.func(args)
