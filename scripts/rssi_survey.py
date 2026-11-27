@@ -104,9 +104,17 @@ def cmd_record(args):
     csv_path = args.out or f"docs/logs/rssi-{time.strftime('%Y%m%d-%H%M%S')}.csv"
     log_path = os.path.splitext(csv_path)[0] + ".log"
 
+    # 다른 프로그램(모니터 등)이 포트를 열고 있으면 열지 않는다. macOS는 동시 열기를 막지 않아
+    # 출력을 나눠 읽게 된다(2026-11-27 실제 발생). exclusive는 이 도구끼리의 중복 실행을 막는다.
+    import subprocess
+    holders = subprocess.run(["/usr/sbin/lsof", args.port], capture_output=True, text=True).stdout
+    if holders.strip():
+        sys.exit(f"[중단] {args.port} 를 다른 프로그램이 사용 중입니다. 먼저 종료하세요:\n{holders}")
+
     s = serial.Serial()
     s.port, s.baudrate, s.timeout = args.port, 115200, 0.05
     s.dtr, s.rts = False, False
+    s.exclusive = True
     s.open()
 
     def hms(t):

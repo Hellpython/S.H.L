@@ -87,6 +87,15 @@ check_port() {
   [ -c "$port" ] || die "$port 가 없습니다. 케이블 연결·드라이버를 확인하고 ./scripts/lab.sh ports 로 다시 확인"
 }
 
+# 다른 프로세스가 포트를 열고 있으면 중단한다. macOS는 같은 포트를 동시에 열 수 있어
+# 두 프로그램이 출력을 나눠 읽거나 업로드가 섞인다(2026-11-27 실제 발생).
+check_port_free() {
+  local holders
+  holders="$(/usr/sbin/lsof "$1" 2>/dev/null | tail -n +2)"
+  [ -z "$holders" ] || die "$1 를 다른 프로그램이 사용 중입니다. 먼저 종료하세요:
+$holders"
+}
+
 config_value() {  # include/app_config.h 에서 상수 값 읽기 (표시용)
   sed -n "s/.*$1 = \([0-9]*\);.*/\1/p" include/app_config.h | head -1
 }
@@ -177,6 +186,7 @@ cmd_upload() {
   esac
   [ -z "$yes" ] || [ "$yes" = "--yes" ] || die "알 수 없는 옵션: $yes"
   check_port "$port"
+  check_port_free "$port"
 
   echo "업로드 대상"
   if [ "$role" = keyring ]; then
@@ -218,6 +228,7 @@ EOF
 cmd_monitor() {
   local port="${1:-}"
   check_port "$port"
+  check_port_free "$port"
   cat <<EOF
 시리얼 모니터: $port @ $BAUD (종료: Ctrl+C). 로그의 t=..ms는 보드 시각(부팅 후 경과).
 

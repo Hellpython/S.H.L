@@ -113,6 +113,13 @@ run monitor;                              [ $LAST_RC -eq 2 ]; expect_ok "monitor
 run monitor /dev/cu.usbserial-DOESNOTEXIST; [ $LAST_RC -eq 2 ] && ! grep -q "monitor" "$CALLS"; expect_ok "monitor: missing port rejected" $?
 run_fp monitor "$FAKE_PORT";              grep -qx "device monitor -p $FAKE_PORT -b 115200" "$CALLS"; expect_ok "monitor: exact command" $?
 
+# --- 다른 프로세스가 포트를 열고 있으면 거부 (2026-11-27 동시 접근 사고)
+( exec 3<"$FAKE_PORT"; exec sleep 30 ) & HOLDER=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do /usr/sbin/lsof "$FAKE_PORT" >/dev/null 2>&1 && break; sleep 0.2; done
+run_fp monitor "$FAKE_PORT"; [ $LAST_RC -eq 2 ] && ! grep -q "monitor" "$CALLS" && echo "$LAST_OUT" | grep -q "사용 중"; expect_ok "monitor: busy port rejected" $?
+run_fp upload keyring "$FAKE_PORT" --yes; [ $LAST_RC -eq 2 ] && no_upload_called; expect_ok "upload: busy port rejected" $?
+kill $HOLDER 2>/dev/null; wait $HOLDER 2>/dev/null
+
 # --- 실제 환경의 ports/doctor (실제 pio, 장치는 목록 조회만)
 if [ -z "$(ls /dev/cu.* 2>/dev/null | grep -v -e Bluetooth-Incoming-Port -e debug-console)" ]; then
   LAST_OUT="$(./scripts/lab.sh ports 2>&1)"; LAST_RC=$?
