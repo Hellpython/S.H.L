@@ -332,3 +332,48 @@ scan 15s: keyring(0xFFFF) adv=0, other adv=373
 
 - XIAO ON: 키링 광고 19건 → OFF: 0건, 다른 BLE 광고는 계속 수신(스캐너 정상). → 앞의 `FF FF 43 53 01 01`은 XIAO가 보낸 것.
 - 1회 ON/OFF 관찰이다. 반복 시험은 Phase 5에서.
+
+## 11. Phase 4 — ESP32 가로등 실물 수신 (2026-11-27)
+
+### 11-1. 첫 관측 (사용자 관측, `/dev/cu.usbserial-0001` CP2102, 115200, `lab.sh monitor`)
+
+```
+[ALIVE] roadside t=161200ms scans_ok=149 scan_errors=0 state=WAITING
+[ALIVE] roadside t=171951ms scans_ok=159 scan_errors=0 state=WAITING
+[ALIVE] roadside t=182891ms scans_ok=169 scan_errors=0 state=WAITING
+[LED] ON
+[RX] t=192662ms keyring=1 rssi=-54
+[STATE] WAITING -> WARNING t=192662ms
+[RX] t=193765ms keyring=1 rssi=-55
+[ALIVE] roadside t=193782ms scans_ok=179 scan_errors=0 state=WARNING
+[RX] t=194805ms keyring=1 rssi=-54
+[RX] t=195905ms keyring=1 rssi=-57
+[RX] t=197000ms keyring=1 rssi=-57
+[RX] t=198042ms keyring=1 rssi=-57
+```
+
+ESP32에 올라간 `roadside` 바이너리가 어느 커밋으로 빌드됐는지는 기록 없음(로그 형식은 현재 코드와 일치).
+
+### 11-2. 로그 ↔ 코드 대응
+
+| 로그 | 코드 근거 | 해석 |
+|---|---|---|
+| `[ALIVE] roadside ... state=WAITING` 3회 | `loop()` 끝, `kHeartbeatIntervalMs`(10000) 경과 시 | 간격 10751·10940·10891ms: 스캔 1회(약 1.08s)가 끝나야 검사하므로 10s보다 늦음. `scans_ok` +10씩 → 루프 1회 ≈ 1.08s |
+| `scan_errors=0` | `scan->start()`가 false일 때만 증가 | 보장: 매 스캔 *시작 요청*이 거부되지 않음. 비보장: 시작 후 비동기 실패, `BLEDevice::init()` 실패, 무선 수신 품질 (README 알려진 한계 2) |
+| `[LED] ON`이 `[RX]`보다 먼저 | `onAdvertisement()` → `setState()` → `GpioLed::apply()`가 `[LED] ON` 출력 → 반환 후 `loop()`가 `[RX]`, 그다음 `[STATE]` | 의도된 순서. 해제 때도 `[LED] OFF`가 `[STATE] WARNING -> WAITING`보다 먼저 나온다 |
+| `[RX] t=192662ms keyring=1` | `parsePayload()` 성공 시에만 출력 | 6바이트·`FF FF`·`CS`·버전 1·ID 1~254 모두 통과. ESP32 라이브러리는 Manufacturer Data를 Company ID 포함 원본으로 넘김(`BLEAdvertisedDevice.cpp:344`) → XIAO `addManufacturerData(payload)`와 형식 일치 |
+| `[STATE] WAITING -> WARNING t=192662ms` | `r.stateChanged` | `[RX]`와 같은 t = 스캔 종료 시각(`now`)으로 기록 |
+| `[RX]` 간격 1103·1040·1100·1095·1042ms | `BLEScan`은 한 스캔에서 같은 주소를 첫 번째만 보관(`BLEScan.cpp:99-107`, `wantDuplicates=false`) | **스캔당 최대 1줄**. 100ms 광고 주기는 이 로그로 검증 불가(1초 동안 1회 이상 받았다는 것만 확인) |
+| `rssi=-54~-57` | 각 스캔에서 처음 받은 광고 1개의 RSSI | 평균값 아님. 거리 값 아님 |
+
+### 11-3. 이 로그로 확인되는 것 / 안 되는 것
+
+확인:
+- ESP32가 키링 형식 광고를 받아 `keyring=1`로 해석했다 (형식 검사 전부 통과).
+- 첫 수신에서 WAITING → WARNING, GPIO 출력 명령(`[LED] ON`) 1회. 이후 `[RX]` 반복에도 `[LED]`·`[STATE]` 반복 없음(바뀔 때만 출력).
+- 약 5.4초 동안 매 스캔(6/6) 수신.
+
+미확인:
+- 송신원이 XIAO라는 것: 로그만으로는 형식과 ID만 안다(주소 미출력, 같은 바이트를 내는 장치면 동일하게 보임). 근거는 사용자 USB 연결 시점과의 일치 + 10절 맥북 OFF 시험. → 11-4 시험에서 맥북 시각 기준으로 연결/분리와 대응시킨다.
+- 신호 소실 후 WARNING → WAITING, `[LED] OFF`, 재연결 시 재경고, 반복 안정성.
+- 실제 LED 점등(LED 미연결 — `[LED] ON`은 GPIO23 출력 명령일 뿐).
