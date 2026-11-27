@@ -43,7 +43,9 @@ def cmd_record(args):
         return bool(glob.glob("/dev/cu.usbmodem*"))
 
     end, xiao, buf = time.time() + args.minutes * 60, xiao_present(), b""
+    counts = {"CONNECTED": 0, "DISCONNECTED": 0}
     print(f"기록: {path} ({args.minutes:.0f}분, Ctrl+C로 일찍 끝내도 됨)")
+    print(f"현재 XIAO USB: {'연결됨' if xiao else '분리됨'}. 15초 이상 간격으로 뽑았다 꽂기를 반복하세요.")
     with open(path, "a", buffering=1) as f:
         f.write(f"{hms(time.time())} [HOST] logger start port={args.port} xiao_usb={'ON' if xiao else 'OFF'}\n")
         try:
@@ -51,9 +53,11 @@ def cmd_record(args):
                 present = xiao_present()
                 if present != xiao:
                     xiao = present
-                    msg = f"[HOST] XIAO USB {'CONNECTED' if xiao else 'DISCONNECTED'}"
+                    kind = "CONNECTED" if xiao else "DISCONNECTED"
+                    counts[kind] += 1
+                    msg = f"[HOST] XIAO USB {kind}"
                     f.write(f"{hms(time.time())} {msg}\n")
-                    print(msg)
+                    print(f"{msg}  (분리 {counts['DISCONNECTED']}회 / 연결 {counts['CONNECTED']}회)")
                 buf += s.read(256)
                 while b"\n" in buf:
                     raw, buf = buf.split(b"\n", 1)
@@ -67,6 +71,9 @@ def cmd_record(args):
             pass
         f.write(f"{hms(time.time())} [HOST] logger end\n")
     s.close()
+    print(f"잡힌 이벤트: 분리 {counts['DISCONNECTED']}회 / 연결 {counts['CONNECTED']}회")
+    if min(counts.values()) < 5:
+        print("!! ON/OFF 5회가 기록되지 않았습니다. 이 기록은 기준선으로 쓸 수 없습니다(재측정 필요).")
     print(f"분석: python scripts/onoff_latency.py analyze {path}")
 
 
