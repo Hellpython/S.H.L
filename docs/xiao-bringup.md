@@ -16,7 +16,8 @@
 | Phase 2 시리얼 로그 | **확인** (`[ALIVE] keyring id=1`) |
 | Phase 2 USB 재연결 후 실행 | **확인** (7절) |
 | ESP32 업로드 도구(esptool) | `intelhex` 누락으로 동작 안 함 → **승인 후 재설치로 복구, 실행 확인** (9절). 실제 ESP32 업로드는 미검증 |
-| Phase 3 BLE 광고 구현·실제 송신 | **미구현 / 미검증** |
+| Phase 3 BLE 광고 구현·업로드 | **확인** (10절, nrfutil `Device programmed.`, `[ALIVE]` 출력) |
+| Phase 3 독립 수신(맥북 BLE 스캔) | **수신 확인**: `FF FF 43 53 01 01`. 송신원이 XIAO인지(OFF 시 소실) **미검증** |
 | Phase 4 ESP32 실제 수신, WAITING → WARNING → WAITING | **미검증** |
 | Phase 5 반복·실패·경계 시험 (실물) | **미검증** |
 | 배터리 구동, LED판 점등, 거리 기반 감지 | **범위 밖. 구현·검증 안 함** |
@@ -265,3 +266,57 @@ Tool Manager: tool-esptoolpy@2.41100.260830 has been installed!
 | 회귀 | `keyring`·`roadside`·`keyring_xiao` 빌드 SUCCESS, 단위 테스트 88/0, `test_lab.sh` 27/0 |
 
 남은 확인: 실제 ESP32 보드 업로드(`lab.sh upload`)는 **미검증**. pioarduino 5.1.2 사본(`@src-...`)은 지우지 않았다(Seeed 플랫폼 업로드 경로가 이 사본이 있어 재설치를 건너뜀).
+
+## 10. Phase 3 — BLE 광고 송신 (2026-11-27)
+
+### 구현 (`src/keyring_xiao/main.cpp`)
+
+| 항목 | 구현 | 근거 (설치된 Bluefruit52Lib 소스) |
+|---|---|---|
+| 광고 데이터 | `keyring::buildPayload()` 6바이트를 `addManufacturerData()`에 그대로 전달 | `addManufacturerData` = `addData(0xFF, data, len)`. Company ID를 자동으로 붙이지 않음 → 중복 없음 |
+| Flags | `0x06` (`BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE`) | ESP32 키링(`setFlags(0x06)`)과 동일 |
+| 이름 | 광고 안 함 (`addName` 호출 안 함) | |
+| 광고 타입 | `BLE_GAP_ADV_TYPE_NONCONNECTABLE_NONSCANNABLE_UNDIRECTED` (0x05) | 연결 불가. 기본값은 connectable |
+| 주기 | `setIntervalMS(100, 100)` (`kAdvertisingIntervalMs`) | fast/slow 모드: 기본은 처음 30초만 fast → 둘을 같게 |
+| 시작 실패 | `Bluefruit.begin()` / `Advertising.start(0)`가 false면 `[ERROR] ...` 출력 후 정지 | `start`는 `sd_ble_gap_adv_set_configure/tx_power_set/adv_start` 오류 시 false |
+| LED | `Bluefruit.autoConnLed(false)` | 기본은 광고 중 LED 점멸 |
+| 로그 | `[KEYRING] advertising id= interval=`, `[ALIVE] keyring id= t=` | ESP32 키링과 같은 형식 |
+
+빌드: RAM 5.8% (13716 B), Flash 13.0% (105788 B), 프로젝트 소스 경고 0. ESP32 코드·`lib/core`·`app_config.h` 변경 없음.
+
+### 업로드 (확인)
+
+`pio run -e keyring_xiao -t upload --upload-port /dev/cu.usbmodem1101` — 현재 펌웨어(Adafruit core)는 1200bps 터치로 부트로더에 들어가 이번엔 RESET 없이 성공:
+
+```
+Forcing reset using 1200bps open/close on port /dev/cu.usbmodem1101
+...
+Activating new firmware
+Device programmed.
+```
+
+업로드 후 `tool-esptoolpy`(ESP32용) 변화 없음.
+
+### 시리얼 (확인)
+
+```
+19:31:34 [ALIVE] keyring id=1 t=13868ms
+19:31:44 [ALIVE] keyring id=1 t=23868ms
+19:31:54 [ALIVE] keyring id=1 t=33868ms
+```
+
+`[KEYRING] advertising ...` 부팅 줄은 이번에도 못 봤다(7절의 2초 대기 이유). `begin`/`start` 실패 시 `halt()`에서 멈춰 `[ALIVE]`가 나오지 않으므로, `[ALIVE]` 출력 = 광고 시작 명령 수락(간접 증거). 실제 무선 송신의 증거는 아니다.
+
+### 독립 수신 — 맥북 BLE 수동 스캔 (확인, 송신원 확정은 미검증)
+
+도구: 스크래치 venv의 `bleak` 3.1.0 (macOS CoreBluetooth). 스크립트는 Company ID 0xFFFF 광고만 골라 원래 6바이트로 다시 조립해 출력.
+
+```
+scan 15s: keyring(0xFFFF) adv=19, other adv=674
+device=46EDB294-2125-B01B-43C4-4AD07046812C data=FF FF 43 53 01 01 name=None company_ids=['0xffff'] uuids=[]
+  count=19 rssi min/max=-81/-61 gap median=315ms
+```
+
+- Manufacturer Data `FF FF 43 53 01 01` = 기존 패킷과 일치. Company ID 1개(중복 없음), 이름·서비스 UUID 없음.
+- macOS는 BLE 주소 대신 임의 UUID를 보여 주고 중복 광고를 걸러 보고한다(추정) → 315ms 간격은 송출 주기 측정값이 아니다. **100ms 송출 주기는 미검증.**
+- **송신원이 XIAO라는 확인은 미검증**: 같은 바이트를 내는 다른 장치(예: 켜진 ESP32 키링)가 없다는 확인, 또는 XIAO 전원 OFF 시 소실 확인이 필요.
